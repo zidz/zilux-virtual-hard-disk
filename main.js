@@ -73,6 +73,72 @@ function sendStatus(message, type = 'info') {
     }
 }
 
+/**
+ * NEW FUNCTION: Imports profiles from the user's rclone.conf file.
+ * If the config is not encrypted, it reads all details.
+ * If the config is encrypted, it only reads the remote names as stubs.
+ */
+async function importProfilesFromRclone() {
+    const importedProfiles = {};
+
+    // First, try to get full config details with `rclone config dump`
+    const dumpPromise = new Promise(resolve => {
+        const dumpProcess = spawn('rclone', ['config', 'dump']);
+        let stdout = '';
+        dumpProcess.stdout.on('data', data => stdout += data.toString());
+        dumpProcess.on('close', code => {
+            if (code === 0) {
+                try {
+                    const rcloneConfig = JSON.parse(stdout);
+                    for (const remoteName in rcloneConfig) {
+                        const remote = rcloneConfig[remoteName];
+                        // We only care about S3 providers for this app
+                        if (remote && remote.type === 's3') {
+                             importedProfiles[remoteName] = {
+                                profileName: remoteName,
+                                endpoint: remote.endpoint || '',
+                                accessKey: remote.access_key_id || '',
+                                secretKey: remote.secret_access_key || '',
+                                bucketName: '', // Bucket is not stored in rclone config
+                                mountPoint: '', // Mount point is not stored in rclone config
+                            };
+                        }
+                    }
+                } catch (e) {
+                    // JSON parsing failed, proceed to next step
+                }
+            }
+            resolve(code);
+        });
+        dumpProcess.on('error', () => resolve(1));
+    });
+
+    const exitCode = await dumpPromise;
+
+    // If `config dump` failed (e.g., encrypted config), get names with `listremotes`
+    if (exitCode !== 0) {
+        const listPromise = new Promise(resolve => {
+            const listProcess = spawn('rclone', ['listremotes']);
+            let stdout = '';
+            listProcess.stdout.on('data', data => stdout += data.toString());
+            listProcess.on('close', () => {
+                const remoteNames = stdout.trim().split('\n').map(name => name.replace(':', ''));
+                for (const name of remoteNames) {
+                    if (name && !importedProfiles[name]) { // Don't overwrite if already found
+                        importedProfiles[name] = { profileName: name }; // Create a stub profile
+                    }
+                }
+                resolve();
+            });
+            listProcess.on('error', () => resolve());
+        });
+        await listPromise;
+    }
+
+    return importedProfiles;
+}
+
+
 // --- IPC Handlers ---
 
 ipcMain.handle('is-config-encrypted', async () => {
@@ -168,17 +234,29 @@ ipcMain.handle('browse-mount-point', async () => {
     return (canceled || filePaths.length === 0) ? null : filePaths[0];
 });
 
+/**
+ * MODIFIED: This function now loads profiles from both the app's config
+ * and the user's rclone.conf, merging them together.
+ */
 ipcMain.handle('load-profiles', async () => {
+    let appProfiles = {};
+    // 1. Load profiles saved by this application
     try {
         if (fs.existsSync(configPath)) {
             const data = fs.readFileSync(configPath, 'utf-8');
-            return JSON.parse(data);
+            appProfiles = JSON.parse(data);
         }
-        return {};
     } catch (error) {
-        sendStatus(`Fel vid inläsning av profiler: ${error.message}`, 'error');
-        return {};
+        sendStatus(`Fel vid inläsning av app-profiler: ${error.message}`, 'error');
     }
+
+    // 2. Import profiles from the user's main rclone.conf
+    const rcloneProfiles = await importProfilesFromRclone();
+    
+    // 3. Merge profiles. The app's saved profiles take precedence.
+    const mergedProfiles = { ...rcloneProfiles, ...appProfiles };
+
+    return mergedProfiles;
 });
 
 ipcMain.handle('save-profiles', async (event, profiles) => {
