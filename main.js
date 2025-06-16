@@ -4,6 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const readline = require('readline');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -20,15 +21,15 @@ const configPath = path.join(app.getPath('userData'), 'rclone-s3-mounter-profile
 function createWindow() {
     // Create the browser window.
     mainWindow = new BrowserWindow({
-        width: 860,
-        height: 600,
+        width: 520, // Adjusted width to better fit the `max-w-md` content
+        height: 990, // Adjusted height to fit all content without scrolling
         resizable: false,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
             nodeIntegration: false,
         },
-        title: "Rclone S3 Mounter",
+        title: "Zilux - Virtuell Hårddisk", // Translated
         icon: path.join(__dirname, 'assets/icon.png') // Optional: Add an icon
     });
 
@@ -74,6 +75,39 @@ function sendStatus(message, type = 'info') {
 
 // --- IPC Handlers ---
 
+ipcMain.handle('is-config-encrypted', async () => {
+    return new Promise((resolve) => {
+        // Find the rclone config file path
+        const OBFUSCATED_STRING = "# Encrypted rclone configuration File";
+        const configProcess = spawn('rclone', ['config', 'file']);
+        let configPathStr = '';
+        configProcess.stdout.on('data', (data) => { configPathStr += data.toString(); });
+        configProcess.on('close', (code) => {
+            if (code !== 0) return resolve(false); // Can't find config, assume not encrypted
+            
+            const rcloneConfigPath = configPathStr.trim();
+            if (!fs.existsSync(rcloneConfigPath)) return resolve(false);
+
+            try {
+                const readStream = fs.createReadStream(rcloneConfigPath, 'utf8');
+                const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
+                
+                rl.once('line', (firstLine) => {
+                    resolve(firstLine.trim() === OBFUSCATED_STRING);
+                    rl.close();
+                    readStream.destroy();
+                });
+
+                rl.once('error', () => resolve(false));
+
+            } catch {
+                resolve(false);
+            }
+        });
+        configProcess.on('error', () => resolve(false));
+    });
+});
+
 ipcMain.handle('list-buckets', async (event, profile) => {
     const { endpoint, accessKey, secretKey, configPassword } = profile;
     const tempRemoteName = 'tempbucketlist';
@@ -102,8 +136,8 @@ ipcMain.handle('list-buckets', async (event, profile) => {
 
         listProcess.on('close', (closeCode) => {
             if (closeCode !== 0) {
-                const errorMsg = stderrOutput || `rclone exited with code ${closeCode}`;
-                sendStatus(`Failed to list buckets: ${errorMsg}`, 'error');
+                const errorMsg = stderrOutput || `rclone avslutades med kod ${closeCode}`;
+                sendStatus(`Kunde inte lista buckets: ${errorMsg}`, 'error');
                 resolve({ success: false, error: errorMsg });
             } else {
                 const buckets = stdoutOutput.trim().split('\n').map(b => b.replace(/\/$/, '')).filter(Boolean);
@@ -112,7 +146,7 @@ ipcMain.handle('list-buckets', async (event, profile) => {
         });
 
         listProcess.on('error', (err) => {
-            sendStatus(`Failed to start rclone for listing buckets: ${err.message}`, 'error');
+            sendStatus(`Kunde inte starta rclone för att lista buckets: ${err.message}`, 'error');
             resolve({ success: false, error: err.message });
         });
     });
@@ -129,7 +163,7 @@ ipcMain.handle('check-rclone', async () => {
 ipcMain.handle('browse-mount-point', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory', 'createDirectory'],
-        title: 'Select a Mount Point'
+        title: 'Välj en monteringspunkt' // Translated
     });
     return (canceled || filePaths.length === 0) ? null : filePaths[0];
 });
@@ -142,7 +176,7 @@ ipcMain.handle('load-profiles', async () => {
         }
         return {};
     } catch (error) {
-        sendStatus(`Error loading profiles: ${error.message}`, 'error');
+        sendStatus(`Fel vid inläsning av profiler: ${error.message}`, 'error');
         return {};
     }
 });
@@ -151,17 +185,17 @@ ipcMain.handle('save-profiles', async (event, profiles) => {
     try {
         fs.writeFileSync(configPath, JSON.stringify(profiles, null, 2));
     } catch (error) {
-        sendStatus(`Error saving profiles: ${error.message}`, 'error');
+        sendStatus(`Fel vid sparning av profiler: ${error.message}`, 'error');
     }
 });
 
 ipcMain.handle('unmount', async () => {
     if (!rcloneProcess) {
-        sendStatus('No active mount to unmount.', 'warn');
+        sendStatus('Ingen aktiv montering att avmontera.', 'warn');
         return { success: false, message: 'Not mounted' };
     }
     
-    sendStatus('Unmounting filesystem...', 'info');
+    sendStatus('Avmonterar filsystem...', 'info');
     return new Promise((resolve) => {
         unmountInitiatedByUser = true;
         rcloneProcess.kill('SIGINT');
@@ -180,37 +214,37 @@ ipcMain.handle('unmount', async () => {
 
 ipcMain.handle('mount', async (event, profile) => {
     if (rcloneProcess) {
-        sendStatus('A mount is already active. Please unmount first.', 'error');
+        sendStatus('En montering är redan aktiv. Vänligen avmontera först.', 'error');
         return;
     }
 
     unmountInitiatedByUser = false;
     const { profileName, endpoint, accessKey, secretKey, bucketName, mountPoint, configPassword } = profile;
 
-    sendStatus(`Creating rclone config for profile: ${profileName}...`, 'info');
+    sendStatus(`Skapar rclone-konfiguration för profilen: ${profileName}...`, 'info');
     const configArgs = ['config', 'create', profileName, 's3', 'provider', 'Ceph', 'env_auth', 'false', 'endpoint', endpoint, 'access_key_id', accessKey, 'secret_access_key', secretKey];
     const rcloneEnv = { ...process.env, RCLONE_CONFIG_PASS: configPassword || '' };
 
     const configProcess = spawn('rclone', configArgs, { env: rcloneEnv });
     configProcess.on('close', (code) => {
         if (code !== 0) {
-            sendStatus(`rclone config creation failed.`, 'error');
+            sendStatus('Skapandet av rclone-konfigurationen misslyckades.', 'error');
             return;
         }
-        sendStatus('rclone configuration created successfully.', 'success');
+        sendStatus('rclone-konfigurationen har skapats.', 'success');
         
         try {
             if (!fs.existsSync(mountPoint)) {
                 fs.mkdirSync(mountPoint, { recursive: true });
-                sendStatus(`Created mount point directory.`, 'success');
+                sendStatus('Skapade katalog för monteringspunkt.', 'success');
             }
         } catch (error) {
-            sendStatus(`Failed to create mount point: ${error.message}`, 'error');
+            sendStatus(`Kunde inte skapa monteringspunkt: ${error.message}`, 'error');
             return;
         }
 
         const remotePath = `${profileName}:${bucketName}`;
-        sendStatus(`Attempting to mount '${remotePath}'...`, 'info');
+        sendStatus(`Försöker montera '${remotePath}'...`, 'info');
         const mountArgs = ['mount', remotePath, mountPoint, '--vfs-cache-mode', 'full', '--log-level', 'DEBUG', '--log-file', path.join(app.getPath('temp'), 'rclone-mount.log')];
         
         let stdoutOutput = '';
@@ -221,17 +255,17 @@ ipcMain.handle('mount', async (event, profile) => {
         rcloneProcess.stderr.on('data', (data) => { stderrOutput += data.toString(); });
         
         rcloneProcess.on('error', (err) => {
-            sendStatus(`Failed to start rclone: ${err.message}`, 'error');
+            sendStatus(`Kunde inte starta rclone: ${err.message}`, 'error');
             rcloneProcess = null;
             mainWindow.webContents.send('mount-terminated');
         });
         
         rcloneProcess.on('close', (closeCode) => {
             if (unmountInitiatedByUser) {
-                sendStatus('Mount terminated by user.', 'success');
+                sendStatus('Monteringen avslutades av användaren.', 'success');
             } else {
                 const combinedOutput = (stdoutOutput + stderrOutput).trim();
-                sendStatus(`Mount process failed with exit code ${closeCode}. Output:\n${combinedOutput || 'No output captured.'}`, 'error');
+                sendStatus(`Monteringsprocessen misslyckades med felkod ${closeCode}. Output:\n${combinedOutput || 'Ingen output fångades.'}`, 'error');
             }
             rcloneProcess = null;
             mainWindow.webContents.send('mount-terminated');
@@ -239,7 +273,7 @@ ipcMain.handle('mount', async (event, profile) => {
 
         setTimeout(() => {
             if (rcloneProcess && !rcloneProcess.killed) {
-                sendStatus(`Successfully mounted '${remotePath}'.`, 'success');
+                sendStatus(`Lyckades montera '${remotePath}'.`, 'success');
                 mainWindow.webContents.send('mount-successful');
             }
         }, 2500);

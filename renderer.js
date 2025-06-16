@@ -21,6 +21,10 @@ window.addEventListener('DOMContentLoaded', () => {
         mountPointInput: document.getElementById('mount-point'),
         bucketSelect: document.getElementById('bucket-name'),
         btnRefreshBuckets: document.getElementById('btn-refresh-buckets'),
+
+        // Password modal
+        passwordModal: document.getElementById('password-modal'),
+        passwordModalCloseBtn: document.getElementById('password-modal-close-btn'),
     };
     
     // An array of all inputs for easy processing
@@ -29,9 +33,26 @@ window.addEventListener('DOMContentLoaded', () => {
     // --- Application State ---
     let profiles = {};
     let isMounted = false;
+    let rcloneAvailable = false;
 
     // --- UI Update Functions ---
+    function updateStatusPill() {
+        if (isMounted) {
+            ui.rcloneStatus.textContent = 'Monterad';
+            ui.rcloneStatus.className = 'text-xs px-2.5 py-1 rounded-full bg-green-600/50 text-green-300 border border-green-500/50';
+        } else {
+            if (rcloneAvailable) {
+                ui.rcloneStatus.textContent = 'Inte monterad';
+                ui.rcloneStatus.className = 'text-xs px-2.5 py-1 rounded-full bg-yellow-500/30 text-yellow-300 border border-yellow-500/50';
+            } else {
+                ui.rcloneStatus.textContent = 'rclone saknas';
+                ui.rcloneStatus.className = 'text-xs px-2.5 py-1 rounded-full bg-red-500/30 text-red-300 border border-red-500/50';
+            }
+        }
+    }
+
     function updateButtonStates() {
+        updateStatusPill();
         const isProfileSelected = !!ui.profileSelect.value;
         const canListBuckets = ui.endpointUrlInput.value && ui.accessKeyInput.value && ui.secretKeyInput.value;
 
@@ -46,7 +67,7 @@ window.addEventListener('DOMContentLoaded', () => {
             ui.bucketSelect.disabled = true;
             ui.btnBrowse.disabled = true;
         } else {
-            ui.btnMount.disabled = false;
+            ui.btnMount.disabled = !rcloneAvailable;
             ui.btnUnmount.disabled = true;
             allFormInputs.forEach(input => input.disabled = false);
             ui.bucketSelect.disabled = false;
@@ -64,7 +85,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     function populateProfileSelect() {
         const selectedValue = ui.profileSelect.value;
-        ui.profileSelect.innerHTML = '<option value="">-- New Profile --</option>';
+        ui.profileSelect.innerHTML = '<option value="">-- Ny profil --</option>';
         for (const name in profiles) {
             const option = document.createElement('option');
             option.value = name;
@@ -93,72 +114,20 @@ window.addEventListener('DOMContentLoaded', () => {
                 option.selected = true;
                 ui.bucketSelect.appendChild(option);
             } else {
-                 ui.bucketSelect.innerHTML = '<option value="">-- Select a bucket --</option>';
+                 ui.bucketSelect.innerHTML = '<option value="">-- Välj en bucket --</option>';
             }
         } else {
             allFormInputs.forEach(input => input.value = '');
-            ui.bucketSelect.innerHTML = '<option value="">-- Enter credentials to list buckets --</option>';
+            ui.bucketSelect.innerHTML = '<option value="">-- Ange inloggningsuppgifter för att lista buckets --</option>';
         }
         updateButtonStates();
     }
 
-    // --- Event Listeners and Handlers ---
+    // --- Action Handlers ---
 
-    async function handleRefreshBuckets() {
-        const profileForListing = {
-            profileName: ui.profileNameInput.value.trim(),
-            endpoint: ui.endpointUrlInput.value.trim(),
-            accessKey: ui.accessKeyInput.value.trim(),
-            secretKey: ui.secretKeyInput.value,
-            configPassword: ui.configPasswordInput.value,
-        };
-
-        if (!profileForListing.endpoint || !profileForListing.accessKey || !profileForListing.secretKey) {
-            return log('Endpoint, Access Key, and Secret Key are required to list buckets.', 'warn');
-        }
-        
-        log('Fetching bucket list...', 'info');
-        ui.btnRefreshBuckets.disabled = true;
-
-        const result = await window.electronAPI.listBuckets(profileForListing);
-        
-        const currentBucket = ui.bucketSelect.value;
-        ui.bucketSelect.innerHTML = ''; // Clear existing options
-
-        if (result && result.success) {
-            if (result.buckets.length === 0) {
-                ui.bucketSelect.innerHTML = '<option value="">-- No buckets found --</option>';
-            } else {
-                result.buckets.forEach(bucket => {
-                    const option = document.createElement('option');
-                    option.value = bucket;
-                    option.textContent = bucket;
-                    ui.bucketSelect.appendChild(option);
-                });
-                log(`Successfully loaded ${result.buckets.length} buckets.`, 'success');
-            }
-            if (result.buckets.includes(currentBucket)) {
-                ui.bucketSelect.value = currentBucket;
-            }
-        } else {
-            log(`Failed to load buckets. Check credentials.`, 'error');
-            ui.bucketSelect.innerHTML = '<option value="">-- Error loading buckets --</option>';
-        }
-        updateButtonStates();
-    }
-    
-    ui.btnRefreshBuckets.addEventListener('click', handleRefreshBuckets);
-    [ui.endpointUrlInput, ui.accessKeyInput, ui.secretKeyInput].forEach(input => input.addEventListener('input', updateButtonStates));
-    ui.profileSelect.addEventListener('change', loadProfileIntoForm);
-    
-    ui.btnBrowse.addEventListener('click', async () => {
-        const path = await window.electronAPI.browseMountPoint();
-        if (path) ui.mountPointInput.value = path;
-    });
-
-    ui.btnSaveProfile.addEventListener('click', async () => {
+    function handleSaveProfile() {
         const profileName = ui.profileNameInput.value.trim();
-        if (!profileName) return log('Profile Name cannot be empty.', 'error');
+        if (!profileName) return log('Profilnamn får inte vara tomt.', 'error');
         
         profiles[profileName] = {
             profileName,
@@ -169,26 +138,14 @@ window.addEventListener('DOMContentLoaded', () => {
             mountPoint: ui.mountPointInput.value.trim(),
         };
 
-        await window.electronAPI.saveProfiles(profiles);
+        window.electronAPI.saveProfiles(profiles);
         populateProfileSelect();
         ui.profileSelect.value = profileName;
-        log(`Profile "${profileName}" saved.`, 'success');
+        log(`Profilen "${profileName}" har sparats.`, 'success');
         updateButtonStates();
-    });
+    }
 
-    ui.btnDeleteProfile.addEventListener('click', async () => {
-        const selectedProfileName = ui.profileSelect.value;
-        if (selectedProfileName && confirm(`Delete profile "${selectedProfileName}"?`)) {
-            delete profiles[selectedProfileName];
-            await window.electronAPI.saveProfiles(profiles);
-            ui.profileSelect.value = "";
-            loadProfileIntoForm();
-            populateProfileSelect();
-            log(`Profile "${selectedProfileName}" deleted.`, 'info');
-        }
-    });
-
-    ui.btnMount.addEventListener('click', () => {
+    function handleMount() {
         const profileData = {
             profileName: ui.profileNameInput.value.trim(),
             endpoint: ui.endpointUrlInput.value.trim(),
@@ -200,9 +157,93 @@ window.addEventListener('DOMContentLoaded', () => {
         };
 
         if (!profileData.profileName || !profileData.endpoint || !profileData.accessKey || !profileData.secretKey || !profileData.bucketName || !profileData.mountPoint) {
-            return log('Please fill all configuration fields before mounting.', 'error');
+            return log('Vänligen fyll i alla konfigurationsfält innan montering.', 'error');
         }
         window.electronAPI.mount(profileData);
+    }
+    
+    async function handleRefreshBuckets() {
+        const profileForListing = {
+            endpoint: ui.endpointUrlInput.value.trim(),
+            accessKey: ui.accessKeyInput.value.trim(),
+            secretKey: ui.secretKeyInput.value,
+            configPassword: ui.configPasswordInput.value,
+        };
+
+        if (!profileForListing.endpoint || !profileForListing.accessKey || !profileForListing.secretKey) {
+            return log('Endpoint, Access Key och Secret Key krävs för att lista buckets.', 'warn');
+        }
+        
+        log('Hämtar bucket-lista...', 'info');
+        ui.btnRefreshBuckets.disabled = true;
+
+        const result = await window.electronAPI.listBuckets(profileForListing);
+        
+        const currentBucket = ui.bucketSelect.value;
+        ui.bucketSelect.innerHTML = ''; // Clear existing options
+
+        if (result && result.success) {
+            if (result.buckets.length === 0) {
+                ui.bucketSelect.innerHTML = '<option value="">-- Inga buckets hittades --</option>';
+            } else {
+                result.buckets.forEach(bucket => {
+                    const option = document.createElement('option');
+                    option.value = bucket;
+                    option.textContent = bucket;
+                    ui.bucketSelect.appendChild(option);
+                });
+                log(`Hämtade ${result.buckets.length} buckets.`, 'success');
+            }
+            if (result.buckets.includes(currentBucket)) {
+                ui.bucketSelect.value = currentBucket;
+            }
+        } else {
+            log('Kunde inte hämta buckets. Kontrollera inloggningsuppgifter och konfigurationslösenord.', 'error');
+            ui.bucketSelect.innerHTML = '<option value="">-- Fel vid hämtning av buckets --</option>';
+        }
+        updateButtonStates();
+    }
+    
+    async function checkEncryptionAndProceed(actionCallback) {
+        if (ui.configPasswordInput.value) {
+            actionCallback();
+            return;
+        }
+
+        const isEncrypted = await window.electronAPI.isConfigEncrypted();
+        if (isEncrypted) {
+            ui.passwordModal.classList.remove('hidden');
+        } else {
+            actionCallback();
+        }
+    }
+
+    // --- Event Listeners ---
+    
+    ui.btnRefreshBuckets.addEventListener('click', () => checkEncryptionAndProceed(handleRefreshBuckets));
+    ui.btnMount.addEventListener('click', () => checkEncryptionAndProceed(handleMount));
+    ui.btnSaveProfile.addEventListener('click', handleSaveProfile);
+
+    ui.passwordModalCloseBtn.addEventListener('click', () => ui.passwordModal.classList.add('hidden'));
+    
+    [ui.endpointUrlInput, ui.accessKeyInput, ui.secretKeyInput].forEach(input => input.addEventListener('input', updateButtonStates));
+    ui.profileSelect.addEventListener('change', loadProfileIntoForm);
+    
+    ui.btnBrowse.addEventListener('click', async () => {
+        const path = await window.electronAPI.browseMountPoint();
+        if (path) ui.mountPointInput.value = path;
+    });
+
+    ui.btnDeleteProfile.addEventListener('click', async () => {
+        const selectedProfileName = ui.profileSelect.value;
+        if (selectedProfileName && confirm(`Ta bort profilen "${selectedProfileName}"?`)) {
+            delete profiles[selectedProfileName];
+            await window.electronAPI.saveProfiles(profiles);
+            ui.profileSelect.value = "";
+            loadProfileIntoForm();
+            populateProfileSelect();
+            log(`Profilen "${selectedProfileName}" har tagits bort.`, 'info');
+        }
     });
 
     ui.btnUnmount.addEventListener('click', () => window.electronAPI.unmount());
@@ -214,15 +255,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // --- Initialization ---
     async function initialize() {
-        log('Application started. Checking for rclone...', 'info');
-        const rcloneExists = await window.electronAPI.checkRclone();
-        if (rcloneExists) {
-            log('rclone detected successfully.', 'success');
-            ui.rcloneStatus.textContent = 'rclone OK';
-            ui.rcloneStatus.className = 'text-xs px-2.5 py-1 rounded-full bg-green-600/50 text-green-300 border border-green-500/50';
+        log('Applikationen startad. Söker efter rclone...', 'info');
+        rcloneAvailable = await window.electronAPI.checkRclone();
+        
+        if (rcloneAvailable) {
+            log('rclone hittades.', 'success');
         } else {
-            log('rclone command not found in PATH. Please install it.', 'error');
-            ui.btnMount.disabled = true;
+            log('Kommandot rclone hittades inte i PATH. Vänligen installera det.', 'error');
         }
 
         profiles = await window.electronAPI.loadProfiles();

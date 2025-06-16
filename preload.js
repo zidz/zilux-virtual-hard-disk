@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     mount: (profile) => ipcRenderer.invoke('mount', profile),
     unmount: () => ipcRenderer.invoke('unmount'),
     listBuckets: (profile) => ipcRenderer.invoke('list-buckets', profile),
+    // ADD THIS LINE: Expose the function to check for an encrypted config
+    isConfigEncrypted: () => ipcRenderer.invoke('is-config-encrypted'),
 
     // --- Methods to receive events from the main process ---
     onStatusUpdate: (callback) => ipcRenderer.on('status-update', (_event, value) => callback(value)),
