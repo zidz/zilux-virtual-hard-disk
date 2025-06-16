@@ -2,6 +2,7 @@
     "name": "zilux-virtual-hard-disk",
     "version": "0.1.0",
     "description": "En S3-klient för att montera Zilux Storage lagringsutrymme som en virtuell hårddisk.",
+    "productName": "ZiluxVirtualHardDisk",
     "main": "main.js",
     "scripts": {
       "start": "electron .",
@@ -24,7 +25,7 @@
     },
     "build": {
         "appId": "com.zilux.virtualharddisk",
-        "productName": "Zilux Virtual Hard Disk",
+        "productName": "ZiluxVirtualHardDisk",
         "win": {
           "target": "nsis",
           "icon": "assets/icon.ico"
