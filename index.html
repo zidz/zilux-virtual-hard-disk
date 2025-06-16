@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rclone S3 Mounter (Simple)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <style>
+        /* Basic styles for a clean look and custom scrollbar */
+        body { 
+            font-family: 'Inter', sans-serif;
+        }
+        .log-panel { 
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .log-info { color: #d1d5db; } /* gray-300 */
+        .log-success { color: #4ade80; } /* green-400 */
+        .log-error { color: #f87171; } /* red-400 */
+        .log-warn { color: #facc15; } /* yellow-400 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="bg-gray-800 text-gray-200 antialiased flex items-center justify-center min-h-screen p-4">
+    
+    <!-- Main Content: Single column, centered -->
+    <main class="w-full max-w-md space-y-4">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between bg-gray-900/50 p-4 rounded-lg">
+             <h1 class="text-lg font-bold text-white flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-yellow-400"><path d="M22 10v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6"/><path d="M2 10a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1a2 2 0 0 0-2 2v2a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-2a2 2 0 0 0-2-2h-1a2 2 0 0 1-2-2v-2Z"/><path d="M6 8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2Z"/><path d="M12 4v4"/></svg>
+                <span>Rclone S3 Mounter</span>
+            </h1>
+            <div id="rclone-status-indicator" class="text-xs px-2.5 py-1 rounded-full bg-red-500/30 text-red-300 border border-red-500/50">
+                rclone not found
+            </div>
+        </div>
+
+        <!-- Configuration Form -->
+        <div class="bg-gray-900/50 p-4 rounded-lg space-y-4">
+            <div class="flex gap-2 items-end">
+                <div class="flex-grow">
+                    <label for="profile-select" class="block text-xs font-medium text-gray-400 mb-1">Profile</label>
+                    <select id="profile-select" class="w-full bg-gray-800 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+                        <option value="">-- New Profile --</option>
+                    </select>
+                </div>
+                <button id="btn-delete-profile" title="Delete Profile" class="px-3 py-2 bg-red-600 hover:bg-red-700 rounded-md text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+            </div>
+            
+            <!-- Input fields -->
+            <input type="text" id="profile-name" class="block w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Profile Name">
+            <input type="text" id="endpoint-url" class="block w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="S3 Endpoint URL">
+            <input type="text" id="access-key" class="block w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Access Key ID">
+            <input type="password" id="secret-key" class="block w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Secret Access Key">
+            
+            <div class="flex items-center gap-2">
+                <select id="bucket-name" class="flex-grow w-full bg-gray-800 border border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 disabled:bg-gray-700">
+                    <option value="">-- Enter credentials to list buckets --</option>
+                </select>
+                <button id="btn-refresh-buckets" title="Refresh Buckets" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-md text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+                </button>
+            </div>
+
+            <input type="password" id="config-password" class="block w-full bg-gray-800 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Config Password (not saved)">
+            
+            <div class="flex rounded-md shadow-sm">
+                <input type="text" id="mount-point" placeholder="Mount Point" class="flex-1 block w-full min-w-0 rounded-none rounded-l-md bg-gray-800 border border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+                <button type="button" id="btn-browse" class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600">Browse</button>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                 <button id="btn-save-profile" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-600 border border-gray-500 hover:bg-gray-500 rounded-md font-semibold transition-colors disabled:opacity-50">Save</button>
+                <button id="btn-mount" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500 hover:bg-yellow-600 rounded-md text-black font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Mount</button>
+            </div>
+             <button id="btn-unmount" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 border border-gray-600 hover:bg-gray-600 rounded-md text-gray-300 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 13-6-6-6 6"/><line x1="12" y1="19" x2="12" y2="7"/></svg>
+                 <span>Unmount</span>
+            </button>
+        </div>
+
+        <!-- Status Log Panel -->
+        <div class="bg-gray-900/50 p-4 rounded-lg">
+            <h2 class="text-sm font-semibold mb-2 text-white">Status Log</h2>
+            <div id="log-panel" class="log-panel bg-black/30 h-40 p-2 rounded-md text-xs overflow-y-auto">
+                <!-- Log messages will appear here -->
+            </div>
+        </div>
+    </main>
+    
+    <script src="./renderer.js"></script>
+</body>
+</html>
