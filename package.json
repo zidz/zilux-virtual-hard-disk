@@ -26,14 +26,8 @@
         "appId": "com.zilux.virtualharddisk",
         "productName": "Zilux Virtual Hard Disk",
         "win": {
-            "target": "nsis",
+            "target": "zip",
             "icon": "assets/icon.ico"
-        },
-        "nsis": {
-            "oneClick": false,
-            "perMachine": true,
-            "allowToChangeInstallationDirectory": true,
-            "createDesktopShortcut": true
         }
     }
 }

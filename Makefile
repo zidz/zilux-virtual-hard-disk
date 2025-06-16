@@ -21,9 +21,9 @@ all: deb win
 
 # Build Windows Installer
 win: node_modules
-	@echo "📦 Building Windows installer..."
+	@echo "📦 Building Windows zip package..."
 	@npm run dist:win
-	@echo "\n✅ Windows installer created successfully in:"
+	@echo "\n✅ Windows zip package created successfully in:"
 	@echo "   $(WIN_INSTALLER_DIR)"
 
 
